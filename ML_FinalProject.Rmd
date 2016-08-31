@@ -1,0 +1,186 @@
+---
+title: "ML_FinalPorject"
+author: "elobo"
+date: "August 30th 2016"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Machine Learning applied to Human Activity Recognition (HAR) classification problem
+
+### Synopsis
+This document wants to show the concepts learned on Machine Learning field and thus apply those techiques to a specicif data set in order to predict the performance of some physical exercises done by six individuals during a monitored workout sessions. Raw data used to populate dataset comes from accelerometers used on the belt, forearm, arm, and dumbell during workout.  The purpose of the analysis is to build a model which can be used to predict how well some specific exercises will be performed after a short session of repetitions. As our putcome reperesents some quilitative response the nature of the issue focuses on resolving a classification problem.
+
+### Data collection 
+
+The training data for this project are available here:
+
+https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv
+
+The test data are available here:
+
+https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv
+
+The data for this project come from this source: http://groupware.les.inf.puc-rio.br/har.
+
+
+### Model Building
+The model built will consist on selecting the best fetures out of the total provided by the original data set. Then a revision of nature of predictors and deep cleaning will end to a polish reduced data set. According to the source, the caegorical outcome will consist on:
+
+"Six young health participants were asked to perform one set of 10 repetitions of the Unilateral Dumbbell Biceps Curl in five different fashions: exactly according to the specification (Class A), throwing the elbows to the front (Class B), lifting the dumbbell only halfway (Class C), lowering the dumbbell only halfway (Class D) and throwing the hips to the front (Class E)."
+
+For comprison purposes there will be sused a simple classification tree and and random forest algorithm and the best with higher model accuracy will be taken as the chosen for a particular cases for prediction. Caret packege will be mainly used to test several ML algorithm.
+
+Read more: http://groupware.les.inf.puc-rio.br/har#literature#ixzz4IrzHF3TY
+
+## Loading data 
+
+```{r loading_data, echo=TRUE, message=FALSE}
+library(readr); library(caret); library(ggplot2);  library(dplyr); library(rpart)
+setwd("/Users/elobo/Documents/COURSERA/DATA_SCIENCE/CURSO8")
+training_set <- read.csv("pml-training.csv", stringsAsFactors = TRUE)
+testing_set <- read.csv("pml-testing.csv",stringsAsFactors = TRUE)
+```
+
+Base cleaning on training_set
+
+```{r cleaning, echo=TRUE, cache=TRUE,  eval=TRUE}
+# Cleaning original training set
+# check zero variance predictor, nzv = TRUE, those variables should be thrown out from final model
+        nzv.check_tr <-  nearZeroVar(training_set, saveMetrics=TRUE)
+        nzv.check_tr$varnames <- rownames(nzv.check_tr)
+        names.to.remove <- nzv.check_tr %>% filter(nzv %in% "TRUE") %>% select(varnames)
+        names.to.remove <- sapply(names.to.remove, as.character)[,1]
+
+        training_set_clnd <- training_set[,!(names(training_set) %in% names.to.remove)]
+        dim(training_set_clnd)
+
+        # removing variables that are not valuable for final model
+        training_set_clnd <- training_set_clnd[,-c(1:6)]
+        # checking NAs of the current data set
+        # function to check NA > 90 %
+        calc_NA <- function(x){sum(is.na(x))/length(x)*100}
+        check_NA <- as.data.frame(apply(training_set_clnd,2,calc_NA))
+        table(check_NA[,1] > 90.0)
+# subsetting for final model (without NA-Variables)
+        tr2 <- training_set_clnd[,!check_NA[,1] > 90.0]
+```
+
+general check for cleaned data
+
+```{r Slicing_data, echo=TRUE, message=FALSE, eval=FALSE}
+# general check
+        str(tr2); summary(tr2)
+        
+```  
+
+
+```{r Slicing2, echo=TRUE, message=TRUE}
+# general check
+        dim(tr2)
+        names(tr2)
+```  
+
+
+## Cross- Validation
+From original training set, once cleaned, we split data for correct cross-validation. The model will be trained with data of the subtrainining portion and the fitting performance will be done over the subtesting portion of the original train set.
+
+```{r crossval, echo=TRUE, message=FALSE}
+#Creating the subtraining/subtest sets
+        set.seed(1234)          # seed for reproducibility
+        inTrain <- createDataPartition(tr2$classe, p = 3/4)[[1]]
+        subtraining <- tr2[ inTrain,]
+        subtesting <- tr2[-inTrain,]
+        dim(subtraining); dim(subtesting)
+```
+
+final data set dimention:
+
+```{r Slicing_data2, echo=FALSE, message=TRUE}
+# cheching size
+dim(subtraining); dim(subtesting)
+```
+
+## Exploratory Anlysis
+We check some total-based predictors behavior
+
+```{r exploratory, echo=TRUE, message=TRUE}
+        featurePlot(x=subtraining[,c("total_accel_arm", "total_accel_dumbbell" ,"total_accel_forearm")], 
+                    y=subtraining$classe, 
+                    plot="pairs")
+```
+
+## Checking Models
+
+```{r classification_tree, echo=TRUE,cache=TRUE, message=TRUE}
+        #Classification tree evaluation
+        rpart.fit <- train(classe ~ ., method="rpart", data = subtraining, preProcess=c("center", "scale"))
+        rpart.predi <- predict(rpart.fit, subtesting)
+        # model check
+        rpart.fit$finalModel
+        
+        # prediction check
+        rpart.cmx <- confusionMatrix(rpart.predi, subtesting$classe)
+        rpart.cmx$overall
+        
+        rattle::fancyRpartPlot(rpart.fit$finalModel)
+```
+
+### Random Forest
+Using a Random Forest method regressin variable classe on all predictors.
+
+```{r ramdon_forest, echo=TRUE, message=FALSE, cache=TRUE , eval=FALSE}
+# Random Forest model evaluation
+        fitControl <- trainControl(method = "cv", number = 5)
+        rf.fit <- train(classe  ~ ., method="rf", data=subtraining, trControl = fitControl)
+# model check
+        rf.fit$finalModel$confusion
+# prediction check
+        rf.predi <- predict(rf.fit, subtesting)
+        cf.cmx <- confusionMatrix(rf.predi, subtesting)
+```
+
+## Model Performance:
+Comparing both model it is seen that rf algorithm shows better accuracy that classification tree.
+
+
+```{r rf_performance, echo=TRUE, message=FALSE, cache=TRUE , eval=FALSE}
+cf.cmx <- confusionMatrix(rf.predi, subtesting$classe)
+cf.cmx$overall
+      Accuracy          Kappa  AccuracyLower  AccuracyUpper   AccuracyNull AccuracyPValue  McnemarPValue 
+     0.9936786      0.9920026      0.9910392      0.9957010      0.2844617      0.0000000            NaN 
+     
+cf.cmx$table
+          Reference
+Prediction    A    B    C    D    E
+         A 1395    7    0    0    0
+         B    0  939    8    1    0
+         C    0    3  845    8    1
+         D    0    0    2  794    0
+         E    0    0    0    1  900  
+```
+
+
+## Assignment for Project Quiz.
+```{r assignment1, echo=TRUE, message=FALSE , eval=FALSE}
+#filtering variables used in cross validation
+# formatting testing_data set to model fit. Leaving relevant variables (columns)
+        comm_names <- names(testing_set) %in% names(subtraining)
+        TSET <- testing_set[,comm_names]
+        str(TSET)
+```
+ 
+ 
+```{r assigment2, echo=TRUE, message=TRUE, cache=TRUE , eval=FALSE}               
+# Prediction test
+        predict(rf.fit, TSET)
+ [1] B A B A A E D B A A B C B A E E A B B B
+Levels: A B C D E
+```
+
+## CONCLUSION
+
+For the model choosed, looking at the confusion matrix, the out of sample error is very low showing that the chosen model is not overfitting the testing data set. Then an acurracy of .099 will give us a good chance of correctly presume a right result when predicting specific data for a new testing set.
